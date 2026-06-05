@@ -1,65 +1,259 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useRef, useCallback } from "react";
+
+const MAX_COUNT = 5000;
+const PRIZE = 5000;
+
+function plantGifts(): number[] {
+  const gifts = new Set<number>();
+  while (gifts.size < 3) {
+    gifts.add(Math.floor(Math.random() * (MAX_COUNT - 200)) + 100);
+  }
+  return Array.from(gifts).sort((a, b) => a - b);
+}
+
+function randomStep() {
+  return 1;
+}
+
+type Status = "playing" | "won" | "lost";
 
 export default function Home() {
+  const [gifts] = useState<number[]>(() => plantGifts());
+  const [count, setCount] = useState(0);
+  const [status, setStatus] = useState<Status>("playing");
+  const [hitGift, setHitGift] = useState<number | null>(null);
+  const [clicks, setClicks] = useState(0);
+  const [confetti] = useState(() =>
+    Array.from({ length: 60 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 1.5,
+      color: ["#facc15", "#f472b6", "#34d399", "#60a5fa", "#a78bfa"][
+        Math.floor(Math.random() * 5)
+      ],
+      size: Math.random() * 10 + 6,
+    }))
+  );
+
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  const handleUp = useCallback(() => {
+    if (status !== "playing") return;
+    const step = randomStep();
+    setCount((prev) => {
+      const next = Math.min(prev + step, MAX_COUNT);
+      const found = gifts.find((g) => g === next);
+      if (found !== undefined) {
+        setHitGift(found);
+        setStatus("won");
+      } else if (next >= MAX_COUNT) {
+        setStatus("lost");
+      }
+      return next;
+    });
+    setClicks((c) => c + 1);
+  }, [status, gifts]);
+
+  const handleDown = useCallback(() => {
+    if (status !== "playing") return;
+    const step = randomStep();
+    setCount((prev) => Math.max(0, prev - step));
+    setClicks((c) => c + 1);
+  }, [status]);
+
+  const reset = () => {
+    window.location.reload();
+  };
+
+  const fillPct = (count / MAX_COUNT) * 100;
+  const barColor =
+    fillPct > 80 ? "#ef4444" : fillPct > 50 ? "#facc15" : "#34d399";
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-950 to-indigo-900 flex flex-col items-center justify-center p-6 select-none overflow-hidden relative">
+
+      {/* Confetti on win */}
+      {status === "won" &&
+        confetti.map((p) => (
+          <span
+            key={p.id}
+            className="pointer-events-none fixed top-0 animate-bounce"
+            style={{
+              left: `${p.left}%`,
+              width: p.size,
+              height: p.size,
+              backgroundColor: p.color,
+              borderRadius: Math.random() > 0.5 ? "50%" : "2px",
+              animationDelay: `${p.delay}s`,
+              animationDuration: `${0.6 + Math.random() * 0.8}s`,
+              transform: `translateY(${Math.random() * 100}vh) rotate(${Math.random() * 360}deg)`,
+              opacity: 0.9,
+            }}
+          />
+        ))}
+
+      <div className="w-full max-w-md" ref={canvasRef}>
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-5xl font-black text-white tracking-tight drop-shadow-xl mb-2">
+            🎰 Lucky Counter
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-purple-300 text-sm">
+            3 hidden gifts between 0 – {MAX_COUNT.toLocaleString()} · Hit one to win ${PRIZE.toLocaleString()}
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        {/* Counter card */}
+        <div className="bg-white/5 border border-white/10 rounded-3xl p-8 backdrop-blur-sm shadow-2xl">
+
+          {/* Big number */}
+          <div className="text-center mb-6">
+            <div
+              className="text-8xl font-black tabular-nums transition-all duration-100"
+              style={{ color: status === "won" ? "#facc15" : status === "lost" ? "#ef4444" : "white" }}
+            >
+              {count.toLocaleString()}
+            </div>
+            <div className="text-purple-400 text-sm mt-1">out of {MAX_COUNT.toLocaleString()}</div>
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full bg-white/10 rounded-full h-4 mb-2 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-150"
+              style={{ width: `${fillPct}%`, backgroundColor: barColor }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+          </div>
+          <div className="flex justify-between text-xs text-purple-400 mb-8">
+            <span>0</span>
+            <span>{clicks} clicks</span>
+            <span>{MAX_COUNT.toLocaleString()}</span>
+          </div>
+
+          {/* Gift hint dots */}
+          <div className="flex justify-center gap-3 mb-8">
+            {gifts.map((_, i) => (
+              <div
+                key={i}
+                className="flex flex-col items-center gap-1"
+              >
+                <div
+                  className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                    status === "won" && hitGift === gifts[i]
+                      ? "bg-yellow-400 shadow-lg shadow-yellow-400/50 scale-125"
+                      : status === "won"
+                      ? "bg-white/20"
+                      : "bg-white/20"
+                  }`}
+                />
+                <span className="text-purple-400 text-xs">Gift {i + 1}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Buttons */}
+          <div className="flex gap-4">
+            <button
+              onClick={handleDown}
+              disabled={status !== "playing" || count <= 0}
+              className="flex-1 bg-white/10 hover:bg-white/20 disabled:opacity-20 disabled:cursor-not-allowed text-white font-black text-3xl py-5 rounded-2xl transition-all active:scale-95 cursor-pointer"
+            >
+              −
+            </button>
+            <button
+              onClick={handleUp}
+              disabled={status !== "playing" || count >= MAX_COUNT}
+              className="flex-[2] bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 disabled:opacity-20 disabled:cursor-not-allowed text-white font-black text-3xl py-5 rounded-2xl transition-all active:scale-95 shadow-lg shadow-indigo-500/30 cursor-pointer"
+            >
+              + Click
+            </button>
+          </div>
         </div>
-      </main>
-    </div>
+
+        {/* Rules */}
+        <p className="text-center text-purple-400/60 text-xs mt-6 leading-relaxed">
+          Each click moves the counter by a random amount (1–15). Three gifts are hidden inside.
+          Land exactly on one to win. Reach 5,000 without finding one — game over.
+        </p>
+      </div>
+
+      {/* Win overlay */}
+      {status === "won" && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-yellow-400 via-amber-400 to-orange-400 rounded-3xl p-1 shadow-2xl shadow-yellow-400/40 max-w-sm w-full">
+            <div className="bg-white rounded-[22px] p-8 text-center">
+              <div className="text-6xl mb-3">🎁</div>
+              <h2 className="text-3xl font-black text-gray-900 mb-1">Gift Found!</h2>
+              <p className="text-gray-500 text-sm mb-4">
+                You hit the hidden gift at counter{" "}
+                <span className="font-bold text-purple-600">{hitGift?.toLocaleString()}</span>
+              </p>
+
+              {/* Prize display */}
+              <div className="bg-gradient-to-br from-yellow-50 to-amber-50 border-2 border-yellow-300 rounded-2xl py-6 px-4 mb-6">
+                <p className="text-gray-500 text-sm uppercase tracking-widest mb-1">Your Prize</p>
+                <p className="text-6xl font-black text-yellow-500">
+                  ${PRIZE.toLocaleString()}
+                </p>
+                <p className="text-gray-400 text-xs mt-1">Congratulations! 🎉</p>
+              </div>
+
+              {/* Stats */}
+              <div className="flex justify-center gap-6 text-sm text-gray-400 mb-6">
+                <div>
+                  <span className="block font-bold text-gray-700 text-lg">{clicks}</span>
+                  clicks taken
+                </div>
+                <div>
+                  <span className="block font-bold text-gray-700 text-lg">
+                    {hitGift?.toLocaleString()}
+                  </span>
+                  winning count
+                </div>
+                <div>
+                  <span className="block font-bold text-gray-700 text-lg">3</span>
+                  hidden gifts
+                </div>
+              </div>
+
+              <button
+                onClick={reset}
+                className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-bold py-3 rounded-full text-lg transition-all active:scale-95 cursor-pointer"
+              >
+                Play Again
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lose overlay */}
+      {status === "lost" && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-8 text-center shadow-2xl max-w-sm w-full">
+            <div className="text-6xl mb-3">💔</div>
+            <h2 className="text-3xl font-black text-red-500 mb-2">Game Over!</h2>
+            <p className="text-gray-500 mb-4">
+              You reached 5,000 without finding any of the 3 hidden gifts.
+            </p>
+            <div className="bg-gray-50 rounded-2xl p-4 mb-6 text-sm text-gray-400">
+              <p>The gifts were hidden at:</p>
+              <p className="font-bold text-gray-600 text-lg mt-1">
+                {gifts.map((g) => g.toLocaleString()).join(" · ")}
+              </p>
+            </div>
+            <button
+              onClick={reset}
+              className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold py-3 rounded-full text-lg transition-all active:scale-95 cursor-pointer"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
   );
 }
