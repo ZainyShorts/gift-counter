@@ -1,20 +1,13 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const MAX_COUNT = 5000;
 const PRIZE = 5000;
+const HOLD_SECONDS = 10;
 
 function plantGifts(): number[] {
-  const gifts = new Set<number>();
-  while (gifts.size < 3) {
-    gifts.add(Math.floor(Math.random() * (MAX_COUNT - 200)) + 100);
-  }
-  return Array.from(gifts).sort((a, b) => a - b);
-}
-
-function randomStep() {
-  return 1;
+  return [743, 2218, 4087];
 }
 
 type Status = "playing" | "won" | "lost";
@@ -25,56 +18,90 @@ export default function Home() {
   const [status, setStatus] = useState<Status>("playing");
   const [hitGift, setHitGift] = useState<number | null>(null);
   const [clicks, setClicks] = useState(0);
+  const [holdProgress, setHoldProgress] = useState(0);
+  const [timerActive, setTimerActive] = useState(false);
+
+  const holdStartRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const countRef = useRef(count);
+  countRef.current = count;
+  const giftsRef = useRef(gifts);
+  giftsRef.current = gifts;
+
   const [confetti] = useState(() =>
     Array.from({ length: 60 }, (_, i) => ({
       id: i,
       left: Math.random() * 100,
       delay: Math.random() * 1.5,
-      color: ["#facc15", "#f472b6", "#34d399", "#60a5fa", "#a78bfa"][
-        Math.floor(Math.random() * 5)
-      ],
+      color: ["#facc15", "#f472b6", "#34d399", "#60a5fa", "#a78bfa"][Math.floor(Math.random() * 5)],
       size: Math.random() * 10 + 6,
     }))
   );
 
-  const canvasRef = useRef<HTMLDivElement>(null);
+  const startTimer = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    holdStartRef.current = performance.now();
+    setHoldProgress(0);
+    setTimerActive(true);
+
+    const tick = (now: number) => {
+      const elapsed = (now - holdStartRef.current!) / 1000;
+      const progress = Math.min(elapsed, HOLD_SECONDS);
+      setHoldProgress(progress);
+
+      if (progress >= HOLD_SECONDS) {
+        setTimerActive(false);
+        // Check if current count is a gift
+        const found = giftsRef.current.find((g) => g === countRef.current);
+        if (found !== undefined) {
+          setHitGift(found);
+          setStatus("won");
+        }
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
 
   const handleUp = useCallback(() => {
     if (status !== "playing") return;
-    const step = randomStep();
     setCount((prev) => {
-      const next = Math.min(prev + step, MAX_COUNT);
-      const found = gifts.find((g) => g === next);
-      if (found !== undefined) {
-        setHitGift(found);
-        setStatus("won");
-      } else if (next >= MAX_COUNT) {
+      const next = Math.min(prev + 1, MAX_COUNT);
+      if (next >= MAX_COUNT) {
         setStatus("lost");
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        setTimerActive(false);
+        return next;
       }
       return next;
     });
     setClicks((c) => c + 1);
-  }, [status, gifts]);
+    startTimer();
+  }, [status, startTimer]);
 
   const handleDown = useCallback(() => {
     if (status !== "playing") return;
-    const step = randomStep();
-    setCount((prev) => Math.max(0, prev - step));
+    setCount((prev) => Math.max(0, prev - 1));
     setClicks((c) => c + 1);
-  }, [status]);
+    startTimer();
+  }, [status, startTimer]);
 
-  const reset = () => {
-    window.location.reload();
-  };
+  // cleanup on unmount
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  const reset = () => window.location.reload();
 
   const fillPct = (count / MAX_COUNT) * 100;
-  const barColor =
-    fillPct > 80 ? "#ef4444" : fillPct > 50 ? "#facc15" : "#34d399";
+  const barColor = fillPct > 80 ? "#ef4444" : fillPct > 50 ? "#facc15" : "#34d399";
+  const holdPct = (holdProgress / HOLD_SECONDS) * 100;
+  const secondsLeft = Math.max(0, HOLD_SECONDS - holdProgress).toFixed(1);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-950 to-indigo-900 flex flex-col items-center justify-center p-6 select-none overflow-hidden relative">
 
-      {/* Confetti on win */}
+      {/* Confetti */}
       {status === "won" &&
         confetti.map((p) => (
           <span
@@ -85,7 +112,7 @@ export default function Home() {
               width: p.size,
               height: p.size,
               backgroundColor: p.color,
-              borderRadius: Math.random() > 0.5 ? "50%" : "2px",
+              borderRadius: "50%",
               animationDelay: `${p.delay}s`,
               animationDuration: `${0.6 + Math.random() * 0.8}s`,
               transform: `translateY(${Math.random() * 100}vh) rotate(${Math.random() * 360}deg)`,
@@ -94,7 +121,7 @@ export default function Home() {
           />
         ))}
 
-      <div className="w-full max-w-md" ref={canvasRef}>
+      <div className="w-full max-w-md">
 
         {/* Header */}
         <div className="text-center mb-8">
@@ -102,7 +129,7 @@ export default function Home() {
             🎰 Lucky Counter
           </h1>
           <p className="text-purple-300 text-sm">
-            3 hidden gifts between 0 – {MAX_COUNT.toLocaleString()} · Hit one to win ${PRIZE.toLocaleString()}
+            3 hidden gifts · Click &amp; wait 10 s without clicking again to win ${PRIZE.toLocaleString()}
           </p>
         </div>
 
@@ -112,43 +139,56 @@ export default function Home() {
           {/* Big number */}
           <div className="text-center mb-6">
             <div
-              className="text-8xl font-black tabular-nums transition-all duration-100"
-              style={{ color: status === "won" ? "#facc15" : status === "lost" ? "#ef4444" : "white" }}
+              className="text-8xl font-black tabular-nums"
+              style={{ color: status === "lost" ? "#ef4444" : "white" }}
             >
               {count.toLocaleString()}
             </div>
             <div className="text-purple-400 text-sm mt-1">out of {MAX_COUNT.toLocaleString()}</div>
           </div>
 
-          {/* Progress bar */}
+          {/* Fill bar */}
           <div className="w-full bg-white/10 rounded-full h-4 mb-2 overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-150"
               style={{ width: `${fillPct}%`, backgroundColor: barColor }}
             />
           </div>
-          <div className="flex justify-between text-xs text-purple-400 mb-8">
+          <div className="flex justify-between text-xs text-purple-400 mb-6">
             <span>0</span>
             <span>{clicks} clicks</span>
             <span>{MAX_COUNT.toLocaleString()}</span>
           </div>
 
-          {/* Gift hint dots */}
+          {/* 10-second timer — always visible after first click */}
+          <div className="mb-6">
+            <div className="flex justify-between text-sm mb-2">
+              <span className={`font-semibold ${timerActive ? "text-yellow-300" : "text-white/30"}`}>
+                {timerActive ? "⏱ Hold still to win…" : "⏱ Click to start timer"}
+              </span>
+              <span className={`font-black tabular-nums ${timerActive ? "text-yellow-300" : "text-white/30"}`}>
+                {timerActive ? `${secondsLeft}s` : `${HOLD_SECONDS}.0s`}
+              </span>
+            </div>
+            <div className="w-full bg-white/10 rounded-full h-5 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-none"
+                style={{
+                  width: `${timerActive ? holdPct : 0}%`,
+                  background: "linear-gradient(to right, #a855f7, #facc15)",
+                }}
+              />
+            </div>
+            <p className="text-white/30 text-xs text-center mt-2">
+              Clicking resets the timer — stay still for 10 s to claim the prize
+            </p>
+          </div>
+
+          {/* Gift dots */}
           <div className="flex justify-center gap-3 mb-8">
             {gifts.map((_, i) => (
-              <div
-                key={i}
-                className="flex flex-col items-center gap-1"
-              >
-                <div
-                  className={`w-4 h-4 rounded-full transition-all duration-300 ${
-                    status === "won" && hitGift === gifts[i]
-                      ? "bg-yellow-400 shadow-lg shadow-yellow-400/50 scale-125"
-                      : status === "won"
-                      ? "bg-white/20"
-                      : "bg-white/20"
-                  }`}
-                />
+              <div key={i} className="flex flex-col items-center gap-1">
+                <div className="w-4 h-4 rounded-full bg-white/20" />
                 <span className="text-purple-400 text-xs">Gift {i + 1}</span>
               </div>
             ))}
@@ -175,8 +215,8 @@ export default function Home() {
 
         {/* Rules */}
         <p className="text-center text-purple-400/60 text-xs mt-6 leading-relaxed">
-          Each click moves the counter by a random amount (1–15). Three gifts are hidden inside.
-          Land exactly on one to win. Reach 5,000 without finding one — game over.
+          Click + or − to move the counter. Each click resets the 10-second timer.
+          Stop clicking and wait the full 10 seconds — if you&apos;re on a hidden gift, you win $5,000.
         </p>
       </div>
 
@@ -186,43 +226,21 @@ export default function Home() {
           <div className="bg-gradient-to-br from-yellow-400 via-amber-400 to-orange-400 rounded-3xl p-1 shadow-2xl shadow-yellow-400/40 max-w-sm w-full">
             <div className="bg-white rounded-[22px] p-8 text-center">
               <div className="text-6xl mb-3">🎁</div>
-              <h2 className="text-3xl font-black text-gray-900 mb-1">Gift Found!</h2>
+              <h2 className="text-3xl font-black text-gray-900 mb-1">You Won!</h2>
               <p className="text-gray-500 text-sm mb-4">
-                You hit the hidden gift at counter{" "}
-                <span className="font-bold text-purple-600">{hitGift?.toLocaleString()}</span>
+                You found the gift at <span className="font-bold text-purple-600">{hitGift?.toLocaleString()}</span> and waited 10 seconds!
               </p>
-
-              {/* Prize display */}
               <div className="bg-gradient-to-br from-yellow-50 to-amber-50 border-2 border-yellow-300 rounded-2xl py-6 px-4 mb-6">
                 <p className="text-gray-500 text-sm uppercase tracking-widest mb-1">Your Prize</p>
-                <p className="text-6xl font-black text-yellow-500">
-                  ${PRIZE.toLocaleString()}
-                </p>
+                <p className="text-6xl font-black text-yellow-500">${PRIZE.toLocaleString()}</p>
                 <p className="text-gray-400 text-xs mt-1">Congratulations! 🎉</p>
               </div>
-
-              {/* Stats */}
               <div className="flex justify-center gap-6 text-sm text-gray-400 mb-6">
-                <div>
-                  <span className="block font-bold text-gray-700 text-lg">{clicks}</span>
-                  clicks taken
-                </div>
-                <div>
-                  <span className="block font-bold text-gray-700 text-lg">
-                    {hitGift?.toLocaleString()}
-                  </span>
-                  winning count
-                </div>
-                <div>
-                  <span className="block font-bold text-gray-700 text-lg">3</span>
-                  hidden gifts
-                </div>
+                <div><span className="block font-bold text-gray-700 text-lg">{clicks}</span>clicks</div>
+                <div><span className="block font-bold text-gray-700 text-lg">{hitGift?.toLocaleString()}</span>gift at</div>
+                <div><span className="block font-bold text-gray-700 text-lg">10s</span>held</div>
               </div>
-
-              <button
-                onClick={reset}
-                className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-bold py-3 rounded-full text-lg transition-all active:scale-95 cursor-pointer"
-              >
+              <button onClick={reset} className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-bold py-3 rounded-full text-lg transition-all active:scale-95 cursor-pointer">
                 Play Again
               </button>
             </div>
@@ -236,19 +254,12 @@ export default function Home() {
           <div className="bg-white rounded-3xl p-8 text-center shadow-2xl max-w-sm w-full">
             <div className="text-6xl mb-3">💔</div>
             <h2 className="text-3xl font-black text-red-500 mb-2">Game Over!</h2>
-            <p className="text-gray-500 mb-4">
-              You reached 5,000 without finding any of the 3 hidden gifts.
-            </p>
+            <p className="text-gray-500 mb-4">You reached 5,000 without holding a gift for 10 seconds.</p>
             <div className="bg-gray-50 rounded-2xl p-4 mb-6 text-sm text-gray-400">
               <p>The gifts were hidden at:</p>
-              <p className="font-bold text-gray-600 text-lg mt-1">
-                {gifts.map((g) => g.toLocaleString()).join(" · ")}
-              </p>
+              <p className="font-bold text-gray-600 text-lg mt-1">{gifts.map((g) => g.toLocaleString()).join(" · ")}</p>
             </div>
-            <button
-              onClick={reset}
-              className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold py-3 rounded-full text-lg transition-all active:scale-95 cursor-pointer"
-            >
+            <button onClick={reset} className="w-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold py-3 rounded-full text-lg transition-all active:scale-95 cursor-pointer">
               Try Again
             </button>
           </div>
